@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sequence of Returns Safe Withdrawal Sim</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen py-10 px-4">
+<div class="max-w-3xl mx-auto">
+<h1 class="text-3xl font-bold text-emerald-400 mb-1">Safe Withdrawal Rate Simulator</h1>
+<p class="text-gray-400 text-sm mb-8">Monte Carlo simulation — sequence of returns risk over 30-year retirement</p>
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+  <div class="bg-gray-800 rounded-xl p-4">
+    <label class="block text-xs text-gray-400 mb-1" for="portfolio">Portfolio ($)</label>
+    <input id="portfolio" type="number" value="1000000" min="10000" step="10000"
+      class="w-full bg-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+      aria-label="Initial portfolio value in dollars">
+  </div>
+  <div class="bg-gray-800 rounded-xl p-4">
+    <label class="block text-xs text-gray-400 mb-1" for="withdrawal">Withdrawal (%/yr)</label>
+    <input id="withdrawal" type="number" value="4" min="1" max="20" step="0.1"
+      class="w-full bg-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+      aria-label="Annual withdrawal rate as percentage">
+  </div>
+  <div class="bg-gray-800 rounded-xl p-4">
+    <label class="block text-xs text-gray-400 mb-1" for="avgReturn">Avg Return (%/yr)</label>
+    <input id="avgReturn" type="number" value="7" min="0" max="30" step="0.5"
+      class="w-full bg-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+      aria-label="Average annual return percentage">
+  </div>
+  <div class="bg-gray-800 rounded-xl p-4">
+    <label class="block text-xs text-gray-400 mb-1" for="stdDev">Std Dev (%/yr)</label>
+    <input id="stdDev" type="number" value="15" min="1" max="50" step="0.5"
+      class="w-full bg-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+      aria-label="Standard deviation of annual returns percentage">
+  </div>
+</div>
+
+<button id="runBtn" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-semibold text-lg transition mb-6"
+  aria-label="Run Monte Carlo simulation with 500 scenarios">
+  Run 500 Simulations
+</button>
+
+<div id="results" class="hidden">
+  <div class="grid grid-cols-3 gap-4 mb-6">
+    <div class="bg-gray-800 rounded-xl p-5 text-center">
+      <p class="text-xs text-gray-400 mb-1">Survival Rate</p>
+      <p id="survivalRate" class="text-4xl font-bold text-emerald-400">—</p>
+    </div>
+    <div class="bg-gray-800 rounded-xl p-5 text-center">
+      <p class="text-xs text-gray-400 mb-1">Median Final Balance</p>
+      <p id="medianBalance" class="text-3xl font-bold text-blue-400">—</p>
+    </div>
+    <div class="bg-gray-800 rounded-xl p-5 text-center">
+      <p class="text-xs text-gray-400 mb-1">Avg Final Balance</p>
+      <p id="avgBalance" class="text-3xl font-bold text-yellow-400">—</p>
+    </div>
+  </div>
+
+  <div class="bg-gray-800 rounded-xl p-5 mb-6">
+    <p class="text-sm font-semibold text-gray-300 mb-3">Percentile Lines (30-Year Trajectories)</p>
+    <canvas id="trajectoryChart" width="700" height="250" role="img" aria-label="Portfolio trajectory percentile lines chart" class="w-full rounded-lg"></canvas>
+  </div>
+
+  <div class="bg-gray-800 rounded-xl p-5">
+    <p class="text-sm font-semibold text-gray-300 mb-3">Final Balance Distribution (Survivors)</p>
+    <canvas id="histogramChart" width="700" height="180" role="img" aria-label="Histogram of final portfolio balances" class="w-full rounded-lg"></canvas>
+  </div>
+</div>
+
+<script>
+function boxMuller() {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+
+function runSimulations(portfolio, withdrawalRate, avgReturn, stdDev, nSim, years) {
+  const results = [];
+  const withdrawalAmt = portfolio * (withdrawalRate / 100);
+  for (let s = 0; s < nSim; s++) {
+    let balance = portfolio;
+    const trajectory = [balance];
+    for (let y = 0; y < years; y++) {
+      const ret = (avgReturn / 100) + (stdDev / 100) * boxMuller();
+      balance = balance * (1 + ret) - withdrawalAmt;
+      if (balance <= 0) { balance = 0; }
+      trajectory.push(balance);
+    }
+    results.push(trajectory);
+  }
+  return results;
+}
+
+function drawTrajectories(canvas, simResults, portfolio) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth * devicePixelRatio;
+  const H = canvas.offsetHeight * devicePixelRatio;
+  canvas.width = W; canvas.height = H;
+  ctx.clearRect(0, 0, W, H);
+  const years = simResults[0].length - 1;
+  const nSim = simResults.length;
+  const sortedByFinal = [...simResults].sort((a, b) => a[a.length-1] - b[b.length-1]);
+  const p10 = sortedByFinal[Math.floor(nSim * 0.10)];
+  const p25 = sortedByFinal[Math.floor(nSim * 0.25)];
+  const p50 = sortedByFinal[Math.floor(nSim * 0.50)];
+  const p75 = sortedByFinal[Math.floor(nSim * 0.75)];
+  const p90 = sortedByFinal[Math.floor(nSim * 0.90)];
+  const maxVal = Math.max(...p90.map(v => v)) * 1.05;
+  const pad = { top: 20, right: 20, bottom: 30, left: 70 };
+  const chartW = W - pad.left - pad.right;
+  const chartH = H - pad.top - pad.bottom;
+  function xp(yr) { return pad.left + (yr / years) * chartW; }
+  function yp(val) { return pad.top + chartH - (val / maxVal) * chartH; }
+  ctx.fillStyle = '#111827';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#374151';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 5; i++) {
+    const v = (maxVal / 5) * i;
+    const y = yp(v);
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+    ctx.fillStyle = '#6b7280'; ctx.font = `${10 * devicePixelRatio}px sans-serif`;
+    ctx.fillText('$' + (v / 1e6).toFixed(1) + 'M', 2, y + 4);
+  }
+  const percentiles = [
+    { data: p10, color: '#ef4444', label: 'P10' },
+    { data: p25, color: '#f59e0b', label: 'P25' },
+    { data: p50, color: '#10b981', label: 'P50' },
+    { data: p75, color: '#3b82f6', label: 'P75' },
+    { data: p90, color: '#8b5cf6', label: 'P90' },
+  ];
+  percentiles.forEach(({ data, color, label }) => {
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2 * devicePixelRatio;
+    data.forEach((v, i) => {
+      const x = xp(i), y = yp(Math.max(0, v));
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    const lastX = xp(years);
+    const lastY = yp(Math.max(0, data[data.length-1]));
+    ctx.fillStyle = color;
+    ctx.font = `bold ${10 * devicePixelRatio}px sans-serif`;
+    ctx.fillText(label, lastX - 26, lastY - 4);
+  });
+  ctx.strokeStyle = '#6b7280'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.left, pad.top); ctx.lineTo(pad.left, H - pad.bottom); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(pad.left, H - pad.bottom); ctx.lineTo(W - pad.right, H - pad.bottom); ctx.stroke();
+  for (let i = 0; i <= years; i += 5) {
+    ctx.fillStyle = '#9ca3af'; ctx.font = `${9 * devicePixelRatio}px sans-serif`;
+    ctx.fillText('Yr' + i, xp(i) - 8, H - pad.bottom + 14);
+  }
+}
+
+function drawHistogram(canvas, finalBalances) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth * devicePixelRatio;
+  const H = canvas.offsetHeight * devicePixelRatio;
+  canvas.width = W; canvas.height = H;
+  ctx.clearRect(0, 0, W, H);
+  const survivors = finalBalances.filter(v => v > 0);
+  if (survivors.length === 0) return;
+  const maxVal = Math.max(...survivors);
+  const bins = 30;
+  const binSize = maxVal / bins;
+  const counts = new Array(bins).fill(0);
+  survivors.forEach(v => {
+    const b = Math.min(bins - 1, Math.floor(v / binSize));
+    counts[b]++;
+  });
+  const maxCount = Math.max(...counts);
+  const pad = { top: 15, right: 15, bottom: 30, left: 50 };
+  const chartW = W - pad.left - pad.right;
+  const chartH = H - pad.top - pad.bottom;
+  ctx.fillStyle = '#111827'; ctx.fillRect(0, 0, W, H);
+  counts.forEach((c, i) => {
+    const x = pad.left + (i / bins) * chartW;
+    const bw = (chartW / bins) - 1;
+    const bh = (c / maxCount) * chartH;
+    ctx.fillStyle = '#10b981';
+    ctx.fillRect(x, pad.top + chartH - bh, bw, bh);
+  });
+  ctx.strokeStyle = '#6b7280'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.left, pad.top); ctx.lineTo(pad.left, H - pad.bottom); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(pad.left, H - pad.bottom); ctx.lineTo(W - pad.right, H - pad.bottom); ctx.stroke();
+  for (let i = 0; i <= 5; i++) {
+    const v = (maxVal / 5) * i;
+    const x = pad.left + (i / 5) * chartW;
+    ctx.fillStyle = '#9ca3af'; ctx.font = `${9 * devicePixelRatio}px sans-serif`;
+    ctx.fillText('$' + (v / 1e6).toFixed(1) + 'M', x - 12, H - pad.bottom + 14);
+  }
+}
+
+document.getElementById('runBtn').addEventListener('click', () => {
+  const portfolio = parseFloat(document.getElementById('portfolio').value);
+  const withdrawalRate = parseFloat(document.getElementById('withdrawal').value);
+  const avgReturn = parseFloat(document.getElementById('avgReturn').value);
+  const stdDev = parseFloat(document.getElementById('stdDev').value);
+  const nSim = 500, years = 30;
+  const simResults = runSimulations(portfolio, withdrawalRate, avgReturn, stdDev, nSim, years);
+  const finalBalances = simResults.map(t => t[years]);
+  const survivors = finalBalances.filter(v => v > 0);
+  const survivalPct = (survivors.length / nSim * 100).toFixed(1);
+  const sorted = [...survivors].sort((a, b) => a - b);
+  const median = sorted.length > 0 ? sorted[Math.floor(sorted.length / 2)] : 0;
+  const avg = survivors.length > 0 ? survivors.reduce((a, b) => a + b, 0) / survivors.length : 0;
+  function fmt(n) { return n >= 1e6 ? '$' + (n/1e6).toFixed(2) + 'M' : '$' + Math.round(n).toLocaleString(); }
+  document.getElementById('survivalRate').textContent = survivalPct + '%';
+  document.getElementById('medianBalance').textContent = fmt(median);
+  document.getElementById('avgBalance').textContent = fmt(avg);
+  document.getElementById('results').classList.remove('hidden');
+  setTimeout(() => {
+    drawTrajectories(document.getElementById('trajectoryChart'), simResults, portfolio);
+    drawHistogram(document.getElementById('histogramChart'), finalBalances);
+  }, 50);
+});
+</script>
+</div>
+</body>
+</html>
